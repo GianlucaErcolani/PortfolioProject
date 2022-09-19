@@ -1,0 +1,144 @@
+---
+title: "Machine Learning for Risk Managers"
+author: "Pasquale Cirillo"
+subtitle: K-means Clustering Part 2
+output:
+  html_notebook: default
+  html_document: 
+    df_print: paged
+---
+
+**Disclaimer 1:** In this R Notebook, you can find the code I have used in the second video lesson of the ML4RM course (https://youtu.be/fYmOkEezR30); a basic understanding of R and R Studio is however assumed. If you need a quick introduction to R, I can suggest the following resources:
+
+- An Introduction to R from the R-Project: https://cran.r-project.org/doc/manuals/r-release/R-intro.pdf 
+- Video Lessons on R: https://www.edx.org/course/introduction-to-r-for-data-science-2
+- The R For Data Science Website and Book: https://r4ds.had.co.nz
+- R-Studio Markdown and Notebooks: https://rmarkdown.rstudio.com/lesson-1.html
+
+Notice that the code I am sharing is not always the most efficient one. Sometimes I prefer to use less elegant and less compact formulations for the sake of clarity. If you can write a better code, feel free to do it, it is always a good exercise.
+
+**Disclaimer 2:** This Notebook needs the results of the first lesson, hence please run the corresponding file first.
+
+
+## Preliminaries
+
+To guarantee that we all get the same results, let us set a seed for R (and load the necessary packages, if you haven't already),
+```{r message=FALSE, warning=FALSE}
+set.seed(10)
+library(cluster)
+library(factoextra)
+```
+
+## Increasing the number of clusters
+
+In our previous lesson, we have considered 2 clusters
+
+```{r}
+km.out=kmeans(New[,2:3],centers=2,nstart=30)
+ggplot(New, aes(Feature1, Feature2))+geom_point(color=km.out$cluster)+
+   labs(title='K-means clustering of customers riskiness (2 clusters)',x='Feature 1', y='Feature 2')
+```
+
+What if we consider 3? It is sufficient to set `centers=3`.
+
+```{r}
+km.out=kmeans(New[,2:3],centers=3,nstart=30)
+ggplot(New, aes(Feature1, Feature2))+geom_point(color=km.out$cluster)+
+   labs(title='K-means clustering of customers riskiness (3 clusters)',x='Feature 1', y='Feature 2')
+```
+
+And what about 4 or 8?
+
+```{r}
+km.out=kmeans(New[,2:3],centers=4,nstart=30)
+ggplot(New, aes(Feature1, Feature2))+geom_point(color=km.out$cluster)+
+   labs(title='K-means clustering of customers riskiness (4 clusters)',x='Feature 1', y='Feature 2')
+
+km.out=kmeans(New[,2:3],centers=8,nstart=30)
+ggplot(New, aes(Feature1, Feature2))+geom_point(color=km.out$cluster)+
+   labs(title='K-means clustering of customers riskiness (8 clusters)',x='Feature 1', y='Feature 2')
+```
+
+## Choosing the number of clusters
+
+As said, in the k-means algorithm it is our job to decide how many clusters we want to obtain. Often we have enough information for setting such a number ex ante, but there are also situations in which we have no clue or we would like to have some "objective" (as a subjectivist I do not think it is actually objective, but I will play the role of believing it) decision rule.
+Possibilities to determine the number of clusters are the inertia, the silhouette and the use of gap statistics.
+
+### Inertia
+
+To use the inertia (or within-cluster sum of squares, or wss) in the so-called elbow method, we need first to extract the information from the k-means algorithm. 
+
+The idea is to run several k-means algos with different numbers of clusters, to store the wss (inertia) information, and then to choose the number of clusters k which corresponds to the "elbow" in the curve wws against k.
+
+There are different ways in which we can proceed. We consider two: a procedure in which we do everything ourselves, and a procedure relying on an existing function in the `factoextra` library.
+
+In the first case, we can use a loop as follows. Say that we want to decide the number of clusters between 1 (no cluster) and 10.
+Everytime you run `kmeans` in R, the inertia/wss is stored in the tot.withinss component of the list that stores the results.
+
+```{r}
+# Define the wss function
+wss=function(k) {
+  kmeans(New[,2:3],centers=k,nstart=30)$tot.withinss 
+}
+
+# Set the number of k from 1 to 10
+kvalues=1:10
+
+# Save the inertia information in
+inertia=c()
+for (k in kvalues) {
+inertia[k]=wss(k)   
+}
+
+# Create a simple plot
+plot(kvalues, inertia,
+       type="b", pch = 10, col=2, frame = FALSE, 
+       xlab="Number of clusters k",
+       ylab="Inertia")
+```
+According to this plot, it appears that k is either 2 or 3, because for k>3 the decline in the inertia is smaller and smaller.
+The choice between 2 an 3 is then dependent on our knowldge of the phenomenon and on the intepretability we wish to obtain. 
+To discriminate between defaulted and not defaulted, we just need k=2 (and k=2 is also the value that guarantees the biggest decrease in the within-cluster sum of squares).
+However k=3 could be a starting point to build an alarm system for likely-to-default customers. For $k\geq 4$ the decrease in the wss does not compensate the higher complexity of a larger number of clusters.
+
+The "automatic" method, conversely, uses the function `fviz_nbclust`. The results we obtain are qualitatively comparable with what we have just said. The differences in the plots are due to the slightly different minimization techniques used in the functions.
+
+```{r}
+fviz_nbclust(New[,2:3], kmeans, method = "wss")
+```
+
+### Silhouette
+
+Also when taking silhouette into consideration, we can decide to use the step-by-step procedure or an automatic approach. I leave the former as an exercise for you (and your R skills), while for the latter we simply write
+
+```{r}
+fviz_nbclust(New[,2:3], kmeans, method = "silhouette")
+```
+The silhouette method clearly suggests k=2. 
+However, I like to stress once again that the final decision is ours: k=3 can still be ok, depending on our goals.
+Also notice that k=6 gives an average silhouette comparable with k=3. Yet I would never choose k=6 unless you had a very strong reason for it. A smaller number of clusters is often proferable in terms of interpretability!
+
+It goes without saying that several other R libraries are available. It is always a good idea to surf and find the one you prefer for user-friendliness and graphical quality.
+
+### The gap method
+
+Finally, let us consider the gap method.
+In this case we can rely on the `clusGap` function in the `cluster` package.
+As you can see the log(wss) (i.e. the natural logarithm of the inertia, `logW` below) and all the other quantities like the bootstrap average (`E.logW`) are easily printable.
+
+```{r}
+library(cluster)
+gap=clusGap(New[,2:3], kmeans, nstart = 30,
+                    K.max = 10, B = 100) # B is number of bootstrap samples
+print(gap)
+```
+
+Graphically, we can use the function fviz_gap_stat`.
+
+```{r}
+fviz_gap_stat(gap)
+```
+
+The plot suggests that k=2 is once again the best candidate, but also that k=3 could be acceptable (the value of the gap statistic is very similar; and statistically speaking they are the same). Larger values, conversely, are to be ignored.
+
+
